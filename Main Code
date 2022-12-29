@@ -1,0 +1,243 @@
+// Code for Team Fabricateurs final project
+
+#include <FastLED.h>
+
+// CONSTANTS
+const int keyI = A0;   //pin 2 on your LilyTiny, innerTouch
+const int keyM = A4;   //pin 1 on your LilyTiny, middleTouch
+const int keyO = A1;  //pin 0 on your LilyTiny, outerTouch
+
+// VARIABLES
+// measure the baseline touch values when there is no touch
+int outerTouchBaseline;
+int middleTouchBaseline;
+int innerTouchBaseline;
+
+int outerTouch;
+int middleTouch;
+int innerTouch;
+
+// booleans to determine if the segment has been touched
+bool outerTouched = false;
+bool middleTouched = false;
+bool innerTouched = false;
+bool directionInward = true;
+
+String systemStatus = "off";
+
+//value to determine tolerance difference between touch and touch baseline
+int tolerance =1;
+
+//variables to detect on and off state of the system
+unsigned long pressedTime = 0;
+unsigned long releasedTime = 0;
+
+//LED
+//number of many leds in strip
+#define NUM_LEDS 1
+//input pin
+#define DATA_PIN 3
+// Define the array of leds
+CRGB leds[NUM_LEDS];
+
+//MOTOR
+//motor set up
+const int motorPin = 2;     // motor connected 
+
+void setup() {
+
+  // put your setup code here, to run once:
+  pinMode(keyO, INPUT);
+  pinMode(keyM, INPUT);
+  pinMode(keyI, INPUT);
+
+  // measure the baseline touch values when there is no touch
+  outerTouchBaseline = readCapacitivePin(keyO);
+  middleTouchBaseline = readCapacitivePin(keyM);
+  innerTouchBaseline = readCapacitivePin(keyI);
+
+//  pinMode(0, OUTPUT);
+//  digitalWrite(motorPin, LOW);   //turn motor off
+//  delay(100);
+
+  Serial.begin(9600);
+  Serial.println("baseline values: ");
+  Serial.println(outerTouchBaseline);
+  Serial.println(middleTouchBaseline);
+  Serial.println(innerTouchBaseline);
+
+  //initiate LED
+  FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);  // GRB ordering is assumed
+  for(int i=0; i<3; i++)
+  {
+    leds[0] = CRGB::Red;
+    FastLED.show();
+    delay(500);
+    leds[0] = CRGB::Black;
+    FastLED.show();
+    delay(500);
+  }
+  
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+
+  // set touch values that is more than the baseline
+  outerTouch = readCapacitivePin(keyO)- outerTouchBaseline;
+  middleTouch = readCapacitivePin(keyM) - middleTouchBaseline;
+  innerTouch = readCapacitivePin(keyI) - innerTouchBaseline;
+   
+  printTouchChanges();
+  //triggerLEDColor();
+
+  //digitalWrite(motorPin, HIGH);  
+
+  // measure a long press (3 seconds)
+  runMovementStart();
+  
+  
+  if (systemStatus == "on")
+  { 
+    runMovement();
+  }
+  else if (systemStatus == "off")
+   {
+    leds[0] = CRGB::Black;
+     FastLED.show();
+   }
+
+  delay(500);
+}
+
+
+// prints value if change is greater than the baseline measured at setUp()
+void printTouchChanges(){
+  if (innerTouch > tolerance){
+    Serial.print("   innerTouch=");
+    Serial.println(innerTouch);
+
+  }
+  if (middleTouch > tolerance){
+    Serial.print("   middleTouch=");
+    Serial.println(middleTouch);
+  }
+  if (outerTouch > tolerance){
+    Serial.print("outerTouch=");
+    Serial.println(outerTouch);
+  }
+}
+
+
+// function to check if user has started the movement through a long press and if so, begin the LED
+void runMovementStart()
+{
+ 
+  // checks if system is off. measure the time when outerTouch is pressed and released.
+  if (systemStatus == "off")
+  {
+    if (outerTouch> tolerance && outerTouched == false) 
+    {
+      pressedTime = millis();
+      outerTouched = true; 
+      Serial.println(outerTouched);
+    } 
+    else if ((outerTouch <= tolerance) && (outerTouched == true)) 
+    {
+      releasedTime = millis();
+
+      // if the press is longer than 3000 milliseconds, trigger the LED
+      if (releasedTime - pressedTime > 3000) 
+      {
+        triggerLEDColor("Orange");
+        systemStatus = "on";
+        Serial.println("system started");
+        Serial.println(outerTouched);
+      }
+    }
+  }
+}
+
+// function determine direction of user's movement and trigger corresponding functions
+void runMovement()
+{
+  // moving inwards (inhale): outerTouch --> middleTouch OR middleTouch --> innerTouch
+
+  // case: going inwards
+  
+  // outerTouch --> middleTouch
+  if (middleTouch > tolerance && outerTouched == true && directionInward == true) 
+  {
+      middleTouched = true;
+      outerTouched = false;
+      Serial.println("outer --> middle");
+      vibration("on");
+  }
+
+  // middleTouch --> innerTouch
+  if (innerTouch > tolerance && middleTouched == true && directionInward == true) 
+  {
+      innerTouched = true;
+      middleTouched = false;
+      directionInward = false;
+      triggerLEDColor("Green");
+      Serial.println("middle --> inner");
+  }
+  
+
+  // moving outwards (exhale): innerTouch --> middleTouch OR middleTouch --> outerTouch
+  // case: going outwards
+
+  // innerTouch --> middleTouch
+  if (middleTouch > tolerance && innerTouched == true && directionInward == false) 
+  {
+      middleTouched = true;
+      innerTouched = false;
+      Serial.println("inner --> middle");
+      vibration("off");
+  }
+
+ // middleTouch --> outerTouch
+   if (outerTouch > tolerance && middleTouched == true && directionInward == false) 
+  {
+      outerTouched = true;
+      middleTouched = false;
+      directionInward = true;
+      triggerLEDColor("Orange");
+      Serial.println("middle --> outer");
+  }
+}
+
+
+// function to trigger timed LED colour changes (e.g. orange to green for 5 seconds)
+void triggerLEDColor(String LedColor) 
+{
+  if( LedColor == "Orange")
+  {
+    leds[0] = CRGB::Orange;
+    FastLED.show();
+    Serial.println("orange");
+  }
+   if( LedColor == "Green")
+  {
+    leds[0] = CRGB::Green;
+    FastLED.show();
+    Serial.println("Green");
+  }
+}
+
+
+// function to start vibration motor
+void vibration(String mode)
+{
+    if( mode =="on")
+    {
+      digitalWrite(motorPin, HIGH);  
+      Serial.println ("vibration started");
+    }
+    else if (mode =="off")
+    {
+      digitalWrite(motorPin, LOW);  
+      Serial.println ("vibration stopped");
+    }
+}
